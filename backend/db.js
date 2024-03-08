@@ -1,8 +1,7 @@
-const {DATABASE_URL} = process.env;
 const bcrypt = require("bcrypt");
+require("dotenv").config()
 const mongoose = require('mongoose');
-mongoose.connect(DATABASE_URL)
-
+mongoose.connect(process.env.DATABASE_URL)
 
 const userSchema = new mongoose.Schema({
     username: {
@@ -12,7 +11,7 @@ const userSchema = new mongoose.Schema({
         trim: true,
         lowercase: true,
         minLength: 3,
-        maxLength: 30
+        maxLength: 50
     },
     password: {
         type: String,

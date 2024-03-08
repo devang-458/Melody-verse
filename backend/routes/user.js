@@ -1,10 +1,11 @@
 const express = require('express');
 const zod = require("zod");
-const User = require("../db.js");
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 require("dotenv").config();
 const crypto = require('crypto');
+const { User } = require('../db');
+const { authMiddleware } = require('./middleware');
 
 const router = express.Router();
 const {JWT_SECRET, EMAIL_HOST,EMAIL_PASS, EMAIL_PORT, EMAIL_USER } = process.env
@@ -85,8 +86,8 @@ router.post("/signup", async (req,res)=>{
 })
 
 const signinBody = zod.object({
-    username: req.body.username,
-    password: req.body.password,
+    username: zod.string(),
+    password: zod.string()
 })
 
 router.use('/signin', async (req,res) => {
@@ -95,28 +96,38 @@ router.use('/signin', async (req,res) => {
         res.status(411).json({
             msg: "Wrong Inputs"
         })
-    }
-
-    //finding user
-    const user = await User.findOne({
-        username: req.body.username,
-        password: req.body.password
-    });
-
-    if(user){
-        const token = jwt.sign({
-            userId: user._id
-        }, JWT_SECRET,{expiresIn: "1h"})
-
-        res.json({
-            token: token
-        })
         return;
     }
 
-    res.status(411).json({
-        msg: "Error while logging in"
-    })
+    const {username, password} = req.body;
+    //finding user
+    try{
+        const user = await User.findOne({ username });
+
+        if(user){
+            const isPasswordValid = await user.validatePassword(password)
+            
+            if(isPasswordValid){
+                const token = jwt.sign({
+                    userId: user._id
+                }, JWT_SECRET,{expiresIn: "1h"})
+    
+                res.json({
+                    token: token
+                })
+                return;
+            }
+        }
+        res.status(411).json({
+            msg: "Error while logging in"
+        })
+    }
+    catch{
+        console.error("Error while logging in", error)
+        res.status(500).json({
+            msg: "Internal Server Error"
+        })
+    }
 })
 
 const updateBody = zod.object({
@@ -125,9 +136,11 @@ const updateBody = zod.object({
     lastName: zod.string().optional()
 })
 
-router.put("/api/v1/user", async (req,res)=>{
+router.put("/update",authMiddleware,async (req,res)=>{
     
     const {success} = updateBody.safeParse(req.body);
+
+    console.log(req.userId)
     
     if(!success){
         res.status(411).json({
@@ -135,17 +148,30 @@ router.put("/api/v1/user", async (req,res)=>{
         })
     };
 
-    //updating user 
-    await User.updateOne({
-        _id: req.userId
-    }, req.body);
+    const userId = req.userId
 
-    res.json({
-        msg: "Update successfully"
-    });
+    try{
+        const updateUser = await User.findByIdAndUpdate(userId, req.body, {new: true})
+        if(!updateUser){
+            return res.status(404).json({
+                msg : "User not found"
+            })
+        }
+
+        res.json({
+            msg: "Update successful",
+            user: updateUser
+        })
+    }
+    catch{
+        console.error("Error updating user Information", error)
+        res.status(500).json({
+            msg: "Internal Server Error"
+        });
+    }
 })
 
-router.post("/forget-password", async (req,res)=>{
+router.post("/forget-password", authMiddleware ,async (req,res)=>{
     const {username} = req.body;
     try{
         const user = await User.findOne({username});
@@ -158,13 +184,17 @@ router.post("/forget-password", async (req,res)=>{
         user.resetTokenExpiration = Date.now() + 3600000;
 
         await user.save()
+        res.status(200).json({
+            msg: "Reset token generated successfully",
+            resetToken: resetToken
+        })
     }catch(error){
         console.error(error)
         res.status(500).json({ msg: "Internal Server Error" })
     }
 })
 
-router.post('/reset-password', async (req,res)=>{
+router.post('/reset-password', authMiddleware,async (req,res)=>{
     const {resetToken, newPassword} = req.body;
 
     try{

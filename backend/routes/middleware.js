@@ -1,11 +1,14 @@
 const jwt = require("jsonwebtoken");
-const JWT_SECRET = require("jsonwebtoken");
+
+const {JWT_SECRET} = process.env;
 
 const authMiddleware = async (req,res,next)=>{
     const authHeader = req.headers.authorization;
     
-    if(!authHeader || !authHeader.startsWith("Baerer ")){
-        return res.status(403).json({})
+    if(!authHeader || !authHeader.startsWith("Bearer ")){
+        return res.status(403).json({
+            msg: "Authorization header is missing or malformed"
+        })
     }
 
     const token = authHeader.split(" ")[1];
@@ -15,8 +18,9 @@ const authMiddleware = async (req,res,next)=>{
         req.userId = decode.userId
         next()
     }catch(err){
+        console.error("Error verifying token:", err)
         return res.status(403).json({
-            msg: err
+            msg: "Invalid or expired token"
         })
     }
 };
